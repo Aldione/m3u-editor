@@ -422,6 +422,9 @@ class PlaylistService
             ->first();
 
         if ($alias) {
+            if ($alias && $alias->isExpired()) {
+                return false;
+            }
             return [
                 $alias,
                 'alias_auth',
