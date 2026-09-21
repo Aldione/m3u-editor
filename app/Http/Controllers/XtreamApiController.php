@@ -134,7 +134,7 @@ class XtreamApiController extends Controller
 
         return $this->handle($request);
     }
-    
+
     /**
      * Xtream API request handler.
      *
