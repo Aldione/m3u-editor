@@ -43,7 +43,7 @@ class ProviderAuthPassthroughService
             return null;
         }
 
-        $verify = ! ($playlist->disable_ssl_verification ?? false);
+        $verify = !($playlist->disable_ssl_verification ?? false);
         $userAgent = $playlist->user_agent ?: 'VLC/3.0.21 LibVLC/3.0.21';
 
         foreach ($playlist->getOrderedXtreamUrls() as $providerUrl) {
