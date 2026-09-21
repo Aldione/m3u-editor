@@ -126,6 +126,15 @@ class XtreamApiController extends Controller
      */
     private const int MAX_RECENT_EPISODES = 40;
 
+    public function get(Request $request)
+    {
+        $request->merge([
+            'action' => 'm3u_plus',
+        ]);
+
+        return $this->handle($request);
+    }
+    
     /**
      * Xtream API request handler.
      *
@@ -542,14 +551,6 @@ class XtreamApiController extends Controller
     #[QueryParameter('vod_id', 'VOD/Movie ID. Required for the get_vod_info action.', required: false, type: 'integer', example: 202)]
     #[QueryParameter('stream_id', 'Channel/Stream ID. Required for the get_short_epg and get_simple_data_table actions.', required: false, type: 'integer', example: 303)]
     #[QueryParameter('limit', 'Number of EPG programmes to return for get_short_epg. Defaults to 4.', required: false, type: 'integer', default: 4, example: 4)]
-    public function get(Request $request)
-    {
-        $request->merge([
-            'action' => 'm3u_plus',
-        ]);
-
-        return $this->handle($request);
-    }
 
     public function handle(Request $request)
     {
