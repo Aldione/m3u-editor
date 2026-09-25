@@ -25,6 +25,22 @@ class Playlist extends Model
     use HasFactory;
     use ShortUrlTrait;
 
+    protected static function booted(): void
+    {
+        static::saved(function (Playlist $playlist): void {
+            if (! $playlist->provider_auth_passthrough) {
+                return;
+            }
+    
+            static::query()
+                ->where('id', '!=', $playlist->getKey())
+                ->where('provider_auth_passthrough', true)
+                ->update([
+                    'provider_auth_passthrough' => false,
+                ]);
+        });
+    }
+
     /**
      * The attributes that should be cast to native types.
      *
@@ -95,12 +111,12 @@ class Playlist extends Model
         'enable_channels' => 'boolean',
         'enable_vod_channels' => 'boolean',
         'enable_series' => 'boolean',
-        'auto_retry_503_count' => 'integer',
-        'auto_retry_503_last_at' => 'datetime',
         'provider_auth_passthrough' => 'boolean',
         'provider_auth_passthrough_live' => 'boolean',
         'provider_auth_passthrough_vod' => 'boolean',
         'provider_auth_passthrough_series' => 'boolean',
+        'auto_retry_503_count' => 'integer',
+        'auto_retry_503_last_at' => 'datetime',
     ];
 
     public function getFolderPathAttribute(): string
