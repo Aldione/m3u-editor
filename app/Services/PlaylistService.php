@@ -639,13 +639,49 @@ class PlaylistService
             }
         }
 
+                                } catch (ModelNotFoundException $e) {
+                            // No playlist found
+                        }
+                    }
+                }
+            }
+        }
+
+        // Method 3: Provider Authentication Passthrough
+        //
+        // Only attempt upstream authentication after every local authentication
+        // method has failed. This preserves PlaylistAuth, PlaylistAlias and owner
+        // authentication precedence and avoids unnecessary provider requests.
+        if (! $playlist) {
+            $clientIp = app()->runningInConsole()
+                ? null
+                : request()->ip();
+
+            $passthrough = app(ProviderAuthPassthroughService::class)
+                ->authenticate(
+                    (string) $username,
+                    (string) $password,
+                    $clientIp
+                );
+
+            if ($passthrough) {
+                $playlist = $passthrough['playlist'];
+
+                $playlist->loadMissing([
+                    'user',
+                ]);
+
+                $authMethod = 'provider_passthrough';
+                $playlistAuthId = null;
+            }
+        }
+
         return [
             $playlist,
             $authMethod,
             $username,
             $password,
             $playlistAuthId,
-            $providerPassthrough,
         ];
     }
 
