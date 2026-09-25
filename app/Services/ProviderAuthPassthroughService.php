@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Channel;
+use App\Models\Episode;
 use App\Models\Playlist;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
@@ -213,6 +215,178 @@ class ProviderAuthPassthroughService
         $this->cacheFailedAuthentication($cacheKey);
 
         return null;
+    }
+
+    /**
+     * Resolve the real upstream Xtream stream URL for a passthrough request.
+     *
+     * The client always requests the local m3u-editor ID. We only translate
+     * that ID to the provider source ID after the stream has already been
+     * validated as belonging to the configured playlist.
+     *
+     * @return array{
+     *     url: string,
+     *     proxy: bool,
+     *     type: 'live'|'vod'|'series'
+     * }|null
+     */
+    public function resolveStreamTarget(
+        Playlist $playlist,
+        Channel|Episode $stream,
+        string $streamType,
+        string $username,
+        string $password,
+        string $providerUrl
+    ): ?array {
+        if (! $playlist->provider_auth_passthrough) {
+            return null;
+        }
+
+        $providerUrl = $this->normalizeBaseUrl($providerUrl);
+
+        if ($providerUrl === null) {
+            return null;
+        }
+
+        $username = rawurlencode($username);
+        $password = rawurlencode($password);
+
+        switch ($streamType) {
+            case 'live':
+                if (! $stream instanceof Channel || $stream->is_vod) {
+                    return null;
+                }
+
+                $sourceId = $this->normalizeSourceId(
+                    $stream->source_id
+                );
+
+                if ($sourceId === null) {
+                    return null;
+                }
+
+                $extension = $this->normalizeExtension(
+                    $playlist->xtream_config['output'] ?? 'ts',
+                    'ts'
+                );
+
+                return [
+                    'url' => sprintf(
+                        '%s/live/%s/%s/%s.%s',
+                        $providerUrl,
+                        $username,
+                        $password,
+                        $sourceId,
+                        $extension
+                    ),
+                    'proxy' => (bool) $playlist->provider_auth_passthrough_live,
+                    'type' => 'live',
+                ];
+
+            case 'vod':
+                if (! $stream instanceof Channel || ! $stream->is_vod) {
+                    return null;
+                }
+
+                $sourceId = $this->normalizeSourceId(
+                    $stream->source_id
+                );
+
+                if ($sourceId === null) {
+                    return null;
+                }
+
+                $extension = $this->normalizeExtension(
+                    $stream->container_extension,
+                    'mkv'
+                );
+
+                return [
+                    'url' => sprintf(
+                        '%s/movie/%s/%s/%s.%s',
+                        $providerUrl,
+                        $username,
+                        $password,
+                        $sourceId,
+                        $extension
+                    ),
+                    'proxy' => (bool) $playlist->provider_auth_passthrough_vod,
+                    'type' => 'vod',
+                ];
+
+            case 'series':
+                if (! $stream instanceof Episode) {
+                    return null;
+                }
+
+                $sourceId = $this->normalizeSourceId(
+                    $stream->source_episode_id
+                );
+
+                if ($sourceId === null) {
+                    return null;
+                }
+
+                $extension = $this->normalizeExtension(
+                    $stream->container_extension,
+                    'mkv'
+                );
+
+                return [
+                    'url' => sprintf(
+                        '%s/series/%s/%s/%s.%s',
+                        $providerUrl,
+                        $username,
+                        $password,
+                        $sourceId,
+                        $extension
+                    ),
+                    'proxy' => (bool) $playlist->provider_auth_passthrough_series,
+                    'type' => 'series',
+                ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Xtream source IDs must be positive numeric IDs.
+     */
+    private function normalizeSourceId(mixed $sourceId): ?string
+    {
+        if (
+            ! is_numeric($sourceId) ||
+            (int) $sourceId <= 0
+        ) {
+            return null;
+        }
+
+        return (string) ((int) $sourceId);
+    }
+
+    /**
+     * Prevent arbitrary path contents from being used as a file extension.
+     */
+    private function normalizeExtension(
+        mixed $extension,
+        string $fallback
+    ): string {
+        if (! is_string($extension)) {
+            return $fallback;
+        }
+
+        $extension = strtolower(
+            ltrim(trim($extension), '.')
+        );
+
+        if (
+            $extension === '' ||
+            preg_match('/^[a-z0-9]{1,10}$/', $extension) !== 1
+        ) {
+            return $fallback;
+        }
+
+        return $extension;
     }
 
     /**
