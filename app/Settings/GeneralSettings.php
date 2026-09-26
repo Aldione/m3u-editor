@@ -228,6 +228,8 @@ class GeneralSettings extends Settings
 
     public ?string $tmdb_auto_lookup_all_new = 'enabled';
 
+    public ?bool $tmdb_auto_enrich_on_fetch = false;
+
     public ?int $tmdb_rate_limit = 40;
 
     // AIOStreams integration settings

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Casts\UtcDateTime;
 use App\Enums\ChannelLogoType;
 use App\Enums\DvrMatchMode;
 use App\Enums\DvrRecordingStatus;
@@ -11,6 +12,7 @@ use App\Enums\PlaylistChannelId;
 use App\Events\ViewerFavoriteEvent;
 use App\Facades\PlaylistFacade;
 use App\Facades\ProxyFacade;
+use App\Jobs\FetchTmdbIds;
 use App\Jobs\RefreshMediaServerLibraryJob;
 use App\Models\ArrIntegration;
 use App\Models\Category;
@@ -48,6 +50,7 @@ use App\Services\LogoCacheService;
 use App\Services\M3uProxyService;
 use App\Services\TmdbService;
 use App\Services\VodFileNameService;
+use App\Services\WatchProgressLinker;
 use App\Services\XtreamCategoryService;
 use App\Settings\GeneralSettings;
 use App\Support\SeriesKey;
@@ -1291,10 +1294,28 @@ class XtreamApiController extends Controller
                     refresh: ! $playlist->auto_fetch_series_metadata,
                     sync: false,
                     dispatchTmdb: (bool) $playlist->auto_fetch_series_metadata,
+                    // With on-demand TMDB enrichment on, an enriched series keeps its TMDB
+                    // fields rather than having the provider refresh overwrite them.
+                    preferTmdb: (bool) app(GeneralSettings::class)->tmdb_auto_enrich_on_fetch,
                 );
                 if ($results !== null && $results !== false) {
                     // Provider returned new data — reload the model with fresh relations
                     $seriesItem = $seriesItem->fresh(['seasons.episodes', 'category']) ?? $seriesItem;
+                }
+            }
+
+            // On-demand TMDB enrichment: global opt-in (Settings > Integrations > TMDB >
+            // "Auto-enrichment on fetch"), for installs that don't run the bulk "Fetch TMDB
+            // Metadata" action. processSingleSeries() is self-gating on existing tmdb_id/
+            // plot/cover/cast_list/related_tmdb, so once a series is fully enriched this
+            // is a cheap no-op on every later view - a one-time cost per series, persisted
+            // to $seriesItem. Media server series (Plex/Emby) are included: their synced
+            // metadata often has plot/cover but a cast_list with no TMDB person ids, so
+            // the self-gating check still routes them through TMDB to fill that gap.
+            if (app(GeneralSettings::class)->tmdb_auto_enrich_on_fetch) {
+                $tmdb = app(TmdbService::class);
+                if ($tmdb->isConfigured()) {
+                    app(FetchTmdbIds::class)->processSingleSeries($tmdb, $seriesItem, backfillEnrichment: true);
                 }
             }
 
@@ -1828,7 +1849,25 @@ class XtreamApiController extends Controller
                 // one-time cached fetch. Skip the TMDB dispatch (unrelated to freshness, and
                 // shouldn't be re-triggered on every client request), and don't fail the
                 // request if the live call errors - fall back to the cached data instead.
-                $channel->fetchMetadata(refresh: true, skipTmdb: true);
+                // With on-demand TMDB enrichment on, an enriched title keeps its TMDB fields
+                // rather than having this provider refresh overwrite them.
+                $channel->fetchMetadata(
+                    refresh: true,
+                    skipTmdb: true,
+                    preferTmdb: (bool) app(GeneralSettings::class)->tmdb_auto_enrich_on_fetch,
+                );
+            }
+
+            // On-demand TMDB enrichment: global opt-in (Settings > Integrations > TMDB >
+            // "Auto-enrichment on fetch"), for installs that don't run the bulk "Fetch TMDB
+            // Metadata" action. processVodChannel() is self-gating on existing tmdb_id/
+            // cast_list/etc., so once a title is enriched this is a cheap no-op on every
+            // later view - a one-time cost per title, persisted to $channel.
+            if (app(GeneralSettings::class)->tmdb_auto_enrich_on_fetch) {
+                $tmdb = app(TmdbService::class);
+                if ($tmdb->isConfigured()) {
+                    app(FetchTmdbIds::class)->processVodChannel($tmdb, $channel, backfillEnrichment: true);
+                }
             }
 
             // Build info section - use channel's info field if available, otherwise build from channel data
@@ -3035,7 +3074,20 @@ class XtreamApiController extends Controller
 
         $results = $query->limit($limit)->get();
 
-        $enriched = $results->map(function (ViewerWatchProgress $progress): array {
+        $linker = app(WatchProgressLinker::class);
+        $results->each(fn (ViewerWatchProgress $progress) => $linker->ensureLinked($progress, $playlist));
+
+        $enriched = $results->map(function (ViewerWatchProgress $progress): ?array {
+            // vod/episode rows whose stream_id no longer resolves (and couldn't be
+            // relinked via tmdb_id above) point at deleted content - drop them
+            // instead of surfacing a dead card the client can't do anything with.
+            if ($progress->content_type === 'vod' && ! $progress->channel) {
+                return null;
+            }
+            if ($progress->content_type === 'episode' && ! $progress->episode) {
+                return null;
+            }
+
             $data = $progress->toArray();
 
             if ($progress->content_type === 'episode') {
@@ -3123,7 +3175,7 @@ class XtreamApiController extends Controller
             unset($data['channel'], $data['episode']);
 
             return $data;
-        });
+        })->filter()->values();
 
         if ($includeUpNext) {
             $enriched = $this->appendUpNextEntries($enriched, $results, $viewer, $playlist, $limit);
@@ -4721,6 +4773,30 @@ class XtreamApiController extends Controller
         // app.timezone's wall-clock before Eloquent formats them for storage, or the
         // round-trip re-read will reconstruct the wrong absolute instant.
         $appTz = config('app.timezone', 'UTC');
+        $manualStart = Carbon::parse($startTime)->setTimezone($appTz);
+        $manualEnd = Carbon::parse($endTime)->setTimezone($appTz);
+
+        // Duplicate guard: same dvr_setting, same channel, same auth, overlapping
+        // manual_start/manual_end window. Mirrors createDvrSeriesRule's pattern
+        // below so a double-tap or two devices scheduling the same airing return
+        // 409 + the existing rule's id instead of creating a second manual rule.
+        $existing = DvrRecordingRule::where('dvr_setting_id', $dvrSetting->id)
+            ->where('type', DvrRuleType::Manual)
+            ->where('enabled', true)
+            ->where('channel_id', $channelId)
+            ->where('manual_start', '<', UtcDateTime::forQuery($manualEnd))
+            ->where('manual_end', '>', UtcDateTime::forQuery($manualStart))
+            ->when($playlistAuth, fn ($q) => $q->where('playlist_auth_id', $playlistAuth->id))
+            ->first();
+
+        if ($existing) {
+            return response()->json([
+                'error' => 'A recording for this airing already exists',
+                'rule_id' => $existing->id,
+                'duplicate' => true,
+            ], 409);
+        }
+
         $rule = DvrRecordingRule::create([
             'user_id' => $dvrSetting->user_id,
             'dvr_setting_id' => $dvrSetting->id,
@@ -4729,8 +4805,8 @@ class XtreamApiController extends Controller
             'channel_id' => $channelId,
             'series_title' => $title,
             'match_mode' => DvrMatchMode::Exact,
-            'manual_start' => Carbon::parse($startTime)->setTimezone($appTz),
-            'manual_end' => Carbon::parse($endTime)->setTimezone($appTz),
+            'manual_start' => $manualStart,
+            'manual_end' => $manualEnd,
             'start_early_seconds' => (int) $request->input('start_early_seconds', $dvrSetting->default_start_early_seconds ?? 0),
             'end_late_seconds' => (int) $request->input('end_late_seconds', $dvrSetting->default_end_late_seconds ?? 0),
             'enabled' => true,

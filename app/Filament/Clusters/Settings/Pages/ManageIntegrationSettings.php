@@ -158,6 +158,11 @@ class ManageIntegrationSettings extends BaseSettingsPage
                                             ->label(__('Auto-create groups/categories from TMDB genres'))
                                             ->helperText(__('When enabled, TMDB metadata fetching will automatically create new groups (for VOD) and categories (for Series) based on TMDB genres. When disabled, only existing groups/categories will be used.'))
                                             ->default(false),
+                                        Toggle::make('tmdb_auto_enrich_on_fetch')
+                                            ->label(__('Auto-enrichment on request'))
+                                            ->helperText(__('Automatically enrich a VOD title or series with TMDB data (cast, artwork, plot) the first time it is viewed in a client (request time), instead of on sync or via manual fetch.'))
+                                            ->columnSpanFull()
+                                            ->default(false),
                                         Fieldset::make(__('TMDB Auto-lookup Settings'))
                                             ->columnSpanFull()
                                             ->schema([

@@ -62,6 +62,18 @@ class DynamicGroup extends Model
     }
 
     /**
+     * Enabled, already-materialized groups owned by $userId on a playlist they also own.
+     */
+    public function scopePublishableBy(Builder $query, int $userId): Builder
+    {
+        return $query
+            ->where('user_id', $userId)
+            ->where('enabled', true)
+            ->whereNotNull('last_synced_at')
+            ->whereHas('playlist', fn (Builder $playlistQuery) => $playlistQuery->where('user_id', $userId));
+    }
+
+    /**
      * VOD (Channel) members of this dynamic group.
      */
     public function channels(): MorphToMany
