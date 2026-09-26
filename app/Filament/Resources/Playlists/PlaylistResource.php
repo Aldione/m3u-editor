@@ -6,8 +6,10 @@ use App\Enums\PlaylistSourceType;
 use App\Enums\Status;
 use App\Facades\PlaylistFacade;
 use App\Filament\Actions\CronHelperAction;
+use App\Filament\Actions\FetchTmdbIdsForGroupsAction;
 use App\Filament\Actions\ModalActionGroup;
 use App\Filament\Actions\RegexTesterAction;
+use App\Filament\Clusters\Settings\Pages\ManageCacheSettings;
 use App\Filament\Concerns\HasCopilotSupport;
 use App\Filament\Pages\EasyEditor;
 use App\Filament\Resources\MediaServerIntegrations\MediaServerIntegrationResource;
@@ -55,6 +57,7 @@ use App\Services\ProfileService;
 use App\Services\SyncPipelineService;
 use App\Services\TmdbService;
 use App\Services\XtreamService;
+use App\Settings\GeneralSettings;
 use App\Tables\Columns\ProgressColumn;
 use App\Traits\HasUserFiltering;
 use Carbon\Carbon;
@@ -575,15 +578,21 @@ class PlaylistResource extends Resource implements CopilotResource
                     })
                     ->modalSubmitActionLabel(__('Yes, sync now')),
                 Action::make('process_series')
-                    ->label(__('Fetch Provider Metadata'))
+                    ->label(__('Fetch Provider Series Metadata'))
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->action(function ($record) {
+                    ->schema([
+                        Toggle::make('overwrite_existing')
+                            ->label(__('Overwrite Existing Metadata'))
+                            ->helperText(__('Overwrite existing metadata? Episodes and seasons will always be fetched/updated.'))
+                            ->default(false),
+                    ])
+                    ->action(function ($record, array $data) {
                         $record->update([
                             'status' => Status::Processing,
                             'series_progress' => 0,
                         ]);
                         app('Illuminate\Contracts\Bus\Dispatcher')
-                            ->dispatch(new ProcessM3uImportSeries($record, force: true));
+                            ->dispatch(new ProcessM3uImportSeries($record, force: true, overwriteExisting: (bool) ($data['overwrite_existing'] ?? false)));
                     })->after(function () {
                         Notification::make()
                             ->success()
@@ -600,15 +609,21 @@ class PlaylistResource extends Resource implements CopilotResource
                     ->modalDescription(__('Fetch Series metadata for this playlist now? Only enabled Series will be included.'))
                     ->modalSubmitActionLabel(__('Yes, process now')),
                 Action::make('process_vod')
-                    ->label(__('Fetch Provider Metadata'))
+                    ->label(__('Fetch Provider VOD Metadata'))
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->action(function ($record) {
+                    ->schema([
+                        Toggle::make('overwrite_existing')
+                            ->label(__('Overwrite Existing Metadata'))
+                            ->helperText(__('Overwrite existing metadata? If disabled, it will only fetch and process metadata if it does not already exist.'))
+                            ->default(false),
+                    ])
+                    ->action(function ($record, array $data) {
                         $record->update([
                             'status' => Status::Processing,
                             'progress' => 0,
                         ]);
                         app('Illuminate\Contracts\Bus\Dispatcher')
-                            ->dispatch(new ProcessVodChannels(playlist: $record));
+                            ->dispatch(new ProcessVodChannels(playlist: $record, force: (bool) ($data['overwrite_existing'] ?? false)));
                     })->after(function () {
                         Notification::make()
                             ->success()
@@ -624,6 +639,10 @@ class PlaylistResource extends Resource implements CopilotResource
                     ->modalIcon('heroicon-o-arrow-down-tray')
                     ->modalDescription(__('Fetch VOD metadata for this playlist now? Only enabled VOD channels will be included.'))
                     ->modalSubmitActionLabel(__('Yes, process now')),
+                FetchTmdbIdsForGroupsAction::makeForPlaylist('series')
+                    ->hidden(fn ($record): bool => ! $record->xtream),
+                FetchTmdbIdsForGroupsAction::makeForPlaylist('vod')
+                    ->hidden(fn ($record): bool => ! $record->xtream),
                 Action::make('reset_processing')
                     ->label(__('Reset Processing State'))
                     ->icon('heroicon-o-arrow-path')
@@ -3339,6 +3358,28 @@ class PlaylistResource extends Resource implements CopilotResource
                                 ]),
                         ])->hidden(fn (Get $get): bool => ! $get('enable_proxy')),
                 ]),
+            Section::make(__('Cache'))
+                ->description(__('Options for cached VOD and episode downloads. Caching must be enabled in Settings > Cache.'))
+                ->columnSpanFull()
+                ->collapsible()
+                ->collapsed($creating)
+                ->columns(2)
+                ->hidden(fn (): bool => ! (app(GeneralSettings::class)->enable_cache ?? false))
+                ->schema([
+                    Toggle::make('share_cache_across_playlists')
+                        ->label(__('Share cache across playlists'))
+                        ->inline(false)
+                        ->helperText(__('Let your other playlists play this playlist\'s cached files for the same movie or episode instead of downloading their own copy. Only affects playlists you own.'))
+                        ->default(fn (): bool => (bool) (app(GeneralSettings::class)->default_share_cache_across_playlists ?? false)),
+                    Select::make('cache_retention_mode')
+                        ->label(__('Cache retention mode'))
+                        ->options(ManageCacheSettings::cacheRetentionOptions())
+                        ->placeholder(fn (): string => __('Use global default (:mode)', [
+                            'mode' => ManageCacheSettings::cacheRetentionOptions()[app(GeneralSettings::class)->cache_retention_mode ?: 'automatic']
+                                ?? ManageCacheSettings::cacheRetentionOptions()['automatic'],
+                        ]))
+                        ->helperText(__('Overrides the global retention mode for this playlist. Leave empty to use the global setting.')),
+                ]),
             Section::make(__('EPG Output'))
                 ->description(__('EPG output options'))
                 ->columnSpanFull()
@@ -3905,6 +3946,7 @@ class PlaylistResource extends Resource implements CopilotResource
             ModalActionGroup::section('Processing', [
                 Action::make('process')
                     ->label(__('Sync and Process'))
+                    ->color('success')
                     ->icon('heroicon-o-arrow-path')
                     ->action(function ($record) {
                         // For media server playlists, dispatch the media server sync job
@@ -3991,17 +4033,24 @@ class PlaylistResource extends Resource implements CopilotResource
                             ->body(__('The playlist is no longer processing. You can now run new syncs.'))
                             ->send();
                     })
-                    ->visible(fn (Playlist $record) => $record->isProcessing() && ! ($record->is_network_playlist || $record->isMediaServerPlaylist())),
+                    ->visible(fn (Playlist $record) => ! ($record->is_network_playlist || $record->isMediaServerPlaylist()))
+                    ->disabled(fn (Playlist $record) => ! $record->isProcessing()),
                 Action::make('process_series')
-                    ->label(__('Fetch Provider Metadata'))
+                    ->label(__('Fetch Provider Series Metadata'))
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->action(function ($record) {
+                    ->schema([
+                        Toggle::make('overwrite_existing')
+                            ->label(__('Overwrite Existing Metadata'))
+                            ->helperText(__('Overwrite existing metadata? Episodes and seasons will always be fetched/updated.'))
+                            ->default(false),
+                    ])
+                    ->action(function ($record, array $data) {
                         $record->update([
                             'status' => Status::Processing,
                             'series_progress' => 0,
                         ]);
                         app('Illuminate\Contracts\Bus\Dispatcher')
-                            ->dispatch(new ProcessM3uImportSeries($record, force: true));
+                            ->dispatch(new ProcessM3uImportSeries($record, force: true, overwriteExisting: (bool) ($data['overwrite_existing'] ?? false)));
                     })->after(function () {
                         Notification::make()
                             ->success()
@@ -4018,15 +4067,21 @@ class PlaylistResource extends Resource implements CopilotResource
                     ->modalDescription(__('Fetch Series metadata for this playlist now? Only enabled Series will be included.'))
                     ->modalSubmitActionLabel(__('Yes, process now')),
                 Action::make('process_vod')
-                    ->label(__('Fetch Provider Metadata'))
+                    ->label(__('Fetch Provider VOD Metadata'))
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->action(function ($record) {
+                    ->schema([
+                        Toggle::make('overwrite_existing')
+                            ->label(__('Overwrite Existing Metadata'))
+                            ->helperText(__('Overwrite existing metadata? If disabled, it will only fetch and process metadata if it does not already exist.'))
+                            ->default(false),
+                    ])
+                    ->action(function ($record, array $data) {
                         $record->update([
                             'status' => Status::Processing,
                             'progress' => 0,
                         ]);
                         app('Illuminate\Contracts\Bus\Dispatcher')
-                            ->dispatch(new ProcessVodChannels(playlist: $record));
+                            ->dispatch(new ProcessVodChannels(playlist: $record, force: (bool) ($data['overwrite_existing'] ?? false)));
                     })->after(function () {
                         Notification::make()
                             ->success()
@@ -4042,6 +4097,10 @@ class PlaylistResource extends Resource implements CopilotResource
                     ->modalIcon('heroicon-o-arrow-down-tray')
                     ->modalDescription(__('Fetch VOD metadata for this playlist now? Only enabled VOD channels will be included.'))
                     ->modalSubmitActionLabel(__('Yes, process now')),
+                FetchTmdbIdsForGroupsAction::makeForPlaylist('series')
+                    ->hidden(fn ($record): bool => ! $record->xtream || $record->is_network_playlist),
+                FetchTmdbIdsForGroupsAction::makeForPlaylist('vod')
+                    ->hidden(fn ($record): bool => ! $record->xtream || $record->is_network_playlist),
             ]),
 
             // -- Downloads & Links --

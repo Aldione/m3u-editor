@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Api\M3uProxyApiController;
+use App\Models\CachedContentFile;
 use App\Models\Channel;
 use App\Models\CustomPlaylist;
 use App\Models\Episode;
@@ -15,9 +16,11 @@ use App\Services\M3uProxyService;
 use App\Services\PlaylistService;
 use App\Services\PlaylistUrlService;
 use App\Services\ProviderAuthPassthroughService;
+use App\Settings\GeneralSettings;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redirect;
@@ -444,6 +447,13 @@ class XtreamStreamController extends Controller
                 );
             }
 
+            // Serve a locally cached copy when one is available (see resolveCacheHit()).
+            if ($cacheRedirect = $this->resolveCacheHit($channel, $playlist, $username, $password, $format)) {
+                return $cacheRedirect;
+            }
+
+            // See handleLive(): pooled-provider playlists must use the proxy path so
+            // profile selection and pool distribution are applied.
             $needsProxy = Channel::needsProxy(
                 channelEnableProxy: (bool) $channel->enable_proxy,
                 playlistEnableProxy: (bool) $playlist->enable_proxy,
@@ -539,10 +549,13 @@ class XtreamStreamController extends Controller
                 );
             }
 
-            if (
-                ($playlist->enable_proxy || $request->input('proxy') === 'true')
-                && $playlist->user->canUseProxy()
-            ) {
+            // Serve a locally cached copy when one is available (see resolveCacheHit()).
+            if ($cacheRedirect = $this->resolveCacheHit($episode, $playlist, $username, $password, $format)) {
+                return $cacheRedirect;
+            }
+
+            if (($playlist->enable_proxy || $request->input('proxy') === 'true') && $playlist->user->canUseProxy()) {
+                // Add username and PlaylistAuth ID to request for proxy traceability and per-auth enforcement
                 $request->merge(['username' => $username]);
 
                 if ($playlistAuth instanceof PlaylistAuth) {
@@ -739,6 +752,41 @@ class XtreamStreamController extends Controller
         }
 
         return $streamUrl;
+    }
+
+    /**
+     * Cache-hit gate. Redirects to the cached-content stream route when a
+     * playable cached file exists for this item (its own, or one shared by
+     * another of the same user's playlists), otherwise returns null so the
+     * normal live/proxy path runs.
+     *
+     * Skipped entirely while `enable_cache` is off, and for Custom/Merged
+     * playlists and aliases (only plain Playlists own cached files). A row
+     * whose file is missing on disk falls back to live instead of sending
+     * the client to a 404.
+     */
+    private function resolveCacheHit(Channel|Episode $item, Playlist|CustomPlaylist|MergedPlaylist|PlaylistAlias $playlist, string $username, string $password, string $routeFormat): ?RedirectResponse
+    {
+        if (! (app(GeneralSettings::class)->enable_cache ?? false)) {
+            return null;
+        }
+
+        if (! $playlist instanceof Playlist) {
+            return null;
+        }
+
+        $cached = CachedContentFile::findServableFor($item);
+
+        if ($cached === null || ! $cached->isPlayable()) {
+            return null;
+        }
+
+        return Redirect::to(route('cached-content.stream', [
+            'username' => $username,
+            'password' => $password,
+            'uuid' => $cached->uuid,
+            'format' => $routeFormat,
+        ]));
     }
 
     /**
