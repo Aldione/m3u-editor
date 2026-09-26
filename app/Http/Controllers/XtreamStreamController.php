@@ -318,7 +318,7 @@ class XtreamStreamController extends Controller
         if ($channel instanceof Channel) {
             if ($passthrough && $playlist instanceof Playlist) {
                 $passthroughService = app(ProviderAuthPassthroughService::class);
-
+            
                 $streamUrl = $passthroughService->buildLiveUrl(
                     $playlist,
                     $channel,
@@ -326,58 +326,21 @@ class XtreamStreamController extends Controller
                     $password,
                     $passthrough['provider_url'] ?? null
                 );
-
-                if (! $streamUrl) {
-                    return response()->json([
-                        'error' => 'Unable to build provider stream URL',
-                    ], 502);
-                }
-
-                if (! $playlist->provider_auth_passthrough_live) {
-                    return Redirect::to($streamUrl);
-                }
-
-                if (! $playlist->user->canUseProviderAuthPassthrough()) {
-                    return response()->json([
-                        'error' => 'Provider Authentication Passthrough is not available',
-                    ], 503);
-                }
-
-                try {
-                    $proxyFormat = strtolower(
-                        trim((string) ($playlist->xtream_config['output'] ?? 'ts'))
-                    );
-
-                    $proxyUrl = app(M3uProxyService::class)->createDirectStreamUrl(
-                        url: $streamUrl,
-                        headers: $playlist->custom_headers ?? [],
-                        userAgent: $playlist->user_agent ?: null,
-                        format: $proxyFormat,
-                        metadata: [
-                            'id' => (string) $channel->id,
-                            'channel_id' => (string) $channel->id,
-                            'type' => 'channel',
-                            'playlist_uuid' => $playlist->uuid,
-                            'source_playlist_uuid' => $playlist->uuid,
-                            'auth_method' => 'provider_passthrough',
-                        ],
-                        username: $username,
-                    );
-
-                    return Redirect::to($proxyUrl);
-                } catch (\Throwable $exception) {
-                    $this->logPassthroughProxyFailure(
-                        $exception,
-                        $playlist,
-                        $username,
-                        'live',
-                        $channel->id
-                    );
-                
-                    return response()->json([
-                        'error' => 'Unable to create proxy stream',
-                    ], 502);
-                }
+            
+                $proxyFormat = strtolower(
+                    trim((string) ($playlist->xtream_config['output'] ?? 'ts'))
+                );
+            
+                return $this->handleProviderPassthroughStream(
+                    playlist: $playlist,
+                    streamUrl: $streamUrl,
+                    username: $username,
+                    proxyEnabled: $playlist->provider_auth_passthrough_live,
+                    metadataType: 'channel',
+                    streamId: $channel->id,
+                    logStreamType: 'live',
+                    proxyFormat: $proxyFormat,
+                );
             }
             // When the channel's source playlist pools provider profiles, the proxy path
             // must be taken even if enable_proxy is off on both the channel and the
@@ -452,7 +415,7 @@ class XtreamStreamController extends Controller
         if ($channel instanceof Channel) {
             if ($passthrough && $playlist instanceof Playlist) {
                 $passthroughService = app(ProviderAuthPassthroughService::class);
-
+            
                 $streamUrl = $passthroughService->buildVodUrl(
                     $playlist,
                     $channel,
@@ -460,54 +423,17 @@ class XtreamStreamController extends Controller
                     $password,
                     $passthrough['provider_url'] ?? null
                 );
-
-                if (! $streamUrl) {
-                    return response()->json([
-                        'error' => 'Unable to build provider stream URL',
-                    ], 502);
-                }
-
-                if (! $playlist->provider_auth_passthrough_vod) {
-                    return Redirect::to($streamUrl);
-                }
-
-                if (! $playlist->user->canUseProviderAuthPassthrough()) {
-                    return response()->json([
-                        'error' => 'Proxy is not available for this playlist',
-                    ], 503);
-                }
-
-                try {
-                    $proxyUrl = app(M3uProxyService::class)->createDirectStreamUrl(
-                        url: $streamUrl,
-                        headers: $playlist->custom_headers ?? [],
-                        userAgent: $playlist->user_agent ?: null,
-                        format: 'raw',
-                        metadata: [
-                            'id' => (string) $channel->id,
-                            'channel_id' => (string) $channel->id,
-                            'type' => 'vod',
-                            'playlist_uuid' => $playlist->uuid,
-                            'source_playlist_uuid' => $playlist->uuid,
-                            'auth_method' => 'provider_passthrough',
-                        ],
-                        username: $username,
-                    );
-
-                    return Redirect::to($proxyUrl);
-                } catch (\Throwable $exception) {
-                    $this->logPassthroughProxyFailure(
-                        $exception,
-                        $playlist,
-                        $username,
-                        'vod',
-                        $channel->id
-                    );
-                
-                    return response()->json([
-                        'error' => 'Unable to create proxy stream',
-                    ], 502);
-                }
+            
+                return $this->handleProviderPassthroughStream(
+                    playlist: $playlist,
+                    streamUrl: $streamUrl,
+                    username: $username,
+                    proxyEnabled: $playlist->provider_auth_passthrough_vod,
+                    metadataType: 'vod',
+                    streamId: $channel->id,
+                    logStreamType: 'vod',
+                    proxyFormat: 'raw',
+                );
             }
 
             $needsProxy = Channel::needsProxy(
@@ -580,7 +506,7 @@ class XtreamStreamController extends Controller
         if ($episode instanceof Episode) {
             if ($passthrough && $playlist instanceof Playlist) {
                 $passthroughService = app(ProviderAuthPassthroughService::class);
-
+            
                 $streamUrl = $passthroughService->buildSeriesUrl(
                     $playlist,
                     $episode,
@@ -588,54 +514,17 @@ class XtreamStreamController extends Controller
                     $password,
                     $passthrough['provider_url'] ?? null
                 );
-
-                if (! $streamUrl) {
-                    return response()->json([
-                        'error' => 'Unable to build provider stream URL',
-                    ], 502);
-                }
-
-                if (! $playlist->provider_auth_passthrough_series) {
-                    return Redirect::to($streamUrl);
-                }
-
-                if (! $playlist->user->canUseProviderAuthPassthrough()) {
-                    return response()->json([
-                        'error' => 'Proxy is not available for this playlist',
-                    ], 503);
-                }
-
-                try {
-                    $proxyUrl = app(M3uProxyService::class)->createDirectStreamUrl(
-                        url: $streamUrl,
-                        headers: $playlist->custom_headers ?? [],
-                        userAgent: $playlist->user_agent ?: null,
-                        format: 'raw',
-                        metadata: [
-                            'id' => (string) $episode->id,
-                            'episode_id' => (string) $episode->id,
-                            'type' => 'episode',
-                            'playlist_uuid' => $playlist->uuid,
-                            'source_playlist_uuid' => $playlist->uuid,
-                            'auth_method' => 'provider_passthrough',
-                        ],
-                        username: $username,
-                    );
-
-                    return Redirect::to($proxyUrl);
-                } catch (\Throwable $exception) {
-                    $this->logPassthroughProxyFailure(
-                        $exception,
-                        $playlist,
-                        $username,
-                        'series',
-                        $episode->id
-                    );
-                
-                    return response()->json([
-                        'error' => 'Unable to create proxy stream',
-                    ], 502);
-                }
+            
+                return $this->handleProviderPassthroughStream(
+                    playlist: $playlist,
+                    streamUrl: $streamUrl,
+                    username: $username,
+                    proxyEnabled: $playlist->provider_auth_passthrough_series,
+                    metadataType: 'episode',
+                    streamId: $episode->id,
+                    logStreamType: 'series',
+                    proxyFormat: 'raw',
+                );
             }
 
             if (
@@ -746,7 +635,7 @@ class XtreamStreamController extends Controller
 
         if ($passthrough && $playlist instanceof Playlist) {
             $passthroughService = app(ProviderAuthPassthroughService::class);
-
+        
             $streamUrl = $passthroughService->buildTimeshiftUrl(
                 $playlist,
                 $timeshiftChannel,
@@ -756,54 +645,17 @@ class XtreamStreamController extends Controller
                 $date,
                 $passthrough['provider_url'] ?? null
             );
-
-            if (! $streamUrl) {
-                return response()->json([
-                    'error' => 'Unable to build provider timeshift URL',
-                ], 502);
-            }
-
-            if (! $playlist->provider_auth_passthrough_live) {
-                return Redirect::to($streamUrl);
-            }
-
-            if (! $playlist->user->canUseProviderAuthPassthrough()) {
-                return response()->json([
-                    'error' => 'Proxy is not available for this playlist',
-                ], 503);
-            }
-
-            try {
-                $proxyUrl = app(M3uProxyService::class)->createDirectStreamUrl(
-                    url: $streamUrl,
-                    headers: $playlist->custom_headers ?? [],
-                    userAgent: $playlist->user_agent ?: null,
-                    format: 'raw',
-                    metadata: [
-                        'id' => (string) $timeshiftChannel->id,
-                        'channel_id' => (string) $timeshiftChannel->id,
-                        'type' => 'timeshift',
-                        'playlist_uuid' => $playlist->uuid,
-                        'source_playlist_uuid' => $playlist->uuid,
-                        'auth_method' => 'provider_passthrough',
-                    ],
-                    username: $username,
-                );
-
-                return Redirect::to($proxyUrl);
-            } catch (\Throwable $exception) {
-                $this->logPassthroughProxyFailure(
-                    $exception,
-                    $playlist,
-                    $username,
-                    'timeshift',
-                    $timeshiftChannel->id
-                );
-            
-                return response()->json([
-                    'error' => 'Unable to create proxy stream',
-                ], 502);
-            }
+        
+            return $this->handleProviderPassthroughStream(
+                playlist: $playlist,
+                streamUrl: $streamUrl,
+                username: $username,
+                proxyEnabled: $playlist->provider_auth_passthrough_live,
+                metadataType: 'timeshift',
+                streamId: $timeshiftChannel->id,
+                logStreamType: 'timeshift',
+                proxyFormat: 'raw',
+            );
         }
 
         if (ctype_digit($date)) {
