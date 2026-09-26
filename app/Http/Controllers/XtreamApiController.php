@@ -108,6 +108,7 @@ class XtreamApiController extends Controller
         'get_series_categories',
         'get_vod_info',
         'get_short_epg',
+        'get_epg_batch',
         'get_simple_data_table',
         'm3u_plus',
         'xmltv',
