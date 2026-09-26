@@ -321,7 +321,7 @@ class XtreamStreamController extends Controller
         if ($channel instanceof Channel) {
             if ($passthrough && $playlist instanceof Playlist) {
                 $passthroughService = app(ProviderAuthPassthroughService::class);
-            
+
                 $streamUrl = $passthroughService->buildLiveUrl(
                     $playlist,
                     $channel,
@@ -329,11 +329,11 @@ class XtreamStreamController extends Controller
                     $password,
                     $passthrough['provider_url'] ?? null
                 );
-            
+
                 $proxyFormat = strtolower(
                     trim((string) ($playlist->xtream_config['output'] ?? 'ts'))
                 );
-            
+
                 return $this->handleProviderPassthroughStream(
                     playlist: $playlist,
                     streamUrl: $streamUrl,
@@ -430,7 +430,7 @@ class XtreamStreamController extends Controller
                     $password,
                     $passthrough['provider_url'] ?? null
                 );
-            
+
                 return $this->handleProviderPassthroughStream(
                     playlist: $playlist,
                     streamUrl: $streamUrl,
@@ -532,7 +532,7 @@ class XtreamStreamController extends Controller
                     $password,
                     $passthrough['provider_url'] ?? null
                 );
-            
+
                 return $this->handleProviderPassthroughStream(
                     playlist: $playlist,
                     streamUrl: $streamUrl,
@@ -670,7 +670,7 @@ class XtreamStreamController extends Controller
                 $date,
                 $passthrough['provider_url'] ?? null
             );
-        
+
             return $this->handleProviderPassthroughStream(
                 playlist: $playlist,
                 streamUrl: $streamUrl,
@@ -829,11 +829,11 @@ class XtreamStreamController extends Controller
                 'error' => 'Unable to build provider stream URL',
             ], 502);
         }
-    
+
         if (! $proxyEnabled) {
             return Redirect::to($streamUrl);
         }
-    
+
         if (! $playlist->user?->canUseProviderAuthPassthrough()) {
             return response()->json([
                 'error' => 'Provider Authentication Passthrough is not available',
@@ -844,13 +844,13 @@ class XtreamStreamController extends Controller
             $username,
             (string) config('app.key')
         );
-        
+
         if ($maxConnections !== null && $maxConnections > 0) {
             $activeConnections = M3uProxyService::getActiveStreamsCountByMetadata(
                 'provider_passthrough_user_hash',
                 $passthroughUserHash
             );
-        
+
             if ($activeConnections >= $maxConnections) {
                 Log::debug('Provider passthrough stream limit reached', [
                     'playlist_id' => $playlist->id,
@@ -858,17 +858,17 @@ class XtreamStreamController extends Controller
                     'active_connections' => $activeConnections,
                     'max_connections' => $maxConnections,
                 ]);
-        
+
                 return response()->json([
                     'error' => 'Maximum concurrent streams reached',
                 ], 503);
             }
         }
-    
+
         $metadataIdKey = $metadataType === 'episode'
             ? 'episode_id'
             : 'channel_id';
-    
+
         try {
             $proxyUrl = app(M3uProxyService::class)->createDirectStreamUrl(
                 url: $streamUrl,
@@ -886,7 +886,7 @@ class XtreamStreamController extends Controller
                 ],
                 username: $username,
             );
-    
+
             return Redirect::to($proxyUrl);
         } catch (\Throwable $exception) {
             $this->logPassthroughProxyFailure(
@@ -896,7 +896,7 @@ class XtreamStreamController extends Controller
                 $logStreamType,
                 $streamId
             );
-    
+
             return response()->json([
                 'error' => 'Unable to create proxy stream',
             ], 502);
