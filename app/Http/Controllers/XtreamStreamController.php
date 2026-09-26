@@ -422,7 +422,7 @@ class XtreamStreamController extends Controller
         if ($channel instanceof Channel) {
             if ($passthrough && $playlist instanceof Playlist) {
                 $passthroughService = app(ProviderAuthPassthroughService::class);
-            
+
                 $streamUrl = $passthroughService->buildVodUrl(
                     $playlist,
                     $channel,
@@ -524,7 +524,7 @@ class XtreamStreamController extends Controller
         if ($episode instanceof Episode) {
             if ($passthrough && $playlist instanceof Playlist) {
                 $passthroughService = app(ProviderAuthPassthroughService::class);
-            
+
                 $streamUrl = $passthroughService->buildSeriesUrl(
                     $playlist,
                     $episode,
@@ -660,7 +660,7 @@ class XtreamStreamController extends Controller
 
         if ($passthrough && $playlist instanceof Playlist) {
             $passthroughService = app(ProviderAuthPassthroughService::class);
-        
+
             $streamUrl = $passthroughService->buildTimeshiftUrl(
                 $playlist,
                 $timeshiftChannel,

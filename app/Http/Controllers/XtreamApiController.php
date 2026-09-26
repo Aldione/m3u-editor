@@ -2612,7 +2612,7 @@ class XtreamApiController extends Controller
         if (! $playlist || $authMethod === 'none') {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
-        
+
         if (
             $authMethod === 'provider_passthrough'
             && ! in_array('xmltv', self::PROVIDER_PASSTHROUGH_ACTIONS, true)
