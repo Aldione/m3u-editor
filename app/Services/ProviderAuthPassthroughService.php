@@ -40,13 +40,13 @@ class ProviderAuthPassthroughService
         if ($username === '' || $password === '') {
             return null;
         }
-    
+
         $playlist = $this->getEnabledPlaylist();
-    
+
         if (! $playlist) {
             return null;
         }
-    
+
         /*
          * Never store the provider password in cache keys or values.
          * The HMAC uniquely identifies the credential pair without exposing it.
@@ -56,25 +56,25 @@ class ProviderAuthPassthroughService
             $username."\0".$password,
             (string) config('app.key')
         );
-    
+
         $cacheKey = sprintf(
             'provider-passthrough-auth:%d:%s',
             $playlist->id,
             $credentialHash
         );
-    
+
         /*
          * Successful authentications are cached for a short period so Xtream
          * clients making several API requests do not re-authenticate upstream
          * on every request.
          */
         $cached = Cache::get($cacheKey);
-    
+
         if (is_array($cached)) {
             if (($cached['authenticated'] ?? false) !== true) {
                 return null;
             }
-    
+
             return [
                 'playlist' => $playlist,
                 'provider_url' => $cached['provider_url'] ?? null,
