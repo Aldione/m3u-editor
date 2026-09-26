@@ -2573,6 +2573,69 @@ class M3uProxyService
         }
     }
 
+    private function sanitizeProxyErrorBody(string $body): string
+    {
+        $body = trim($body);
+    
+        if ($body === '') {
+            return 'empty response body';
+        }
+    
+        /*
+         * Redact common sensitive JSON fields before logging or including
+         * the proxy response in an exception.
+         */
+        $decoded = json_decode($body, true);
+    
+        if (is_array($decoded)) {
+            array_walk_recursive($decoded, function (&$value, $key): void {
+                if (
+                    in_array(
+                        strtolower((string) $key),
+                        [
+                            'username',
+                            'password',
+                            'authorization',
+                            'cookie',
+                            'x-api-token',
+                            'url',
+                        ],
+                        true
+                    )
+                ) {
+                    $value = '[REDACTED]';
+                }
+            });
+    
+            $encoded = json_encode(
+                $decoded,
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            );
+    
+            if ($encoded !== false) {
+                $body = $encoded;
+            }
+        }
+    
+        /*
+         * Also protect credentials if they appear inside an error string
+         * rather than dedicated JSON fields.
+         */
+        $body = preg_replace(
+            '#(/(?:live|movie|series|timeshift)/)[^/\s"\'<>]+/[^/\s"\'<>]+#i',
+            '$1[REDACTED]/[REDACTED]',
+            $body
+        ) ?? $body;
+    
+        $body = preg_replace(
+            '#([?&](?:username|password)=)[^&\s"\'<>]+#i',
+            '$1[REDACTED]',
+            $body
+        ) ?? $body;
+    
+        return mb_substr($body, 0, 1000);
+    }
+
     /**
      * Create or update a stream on the m3u-proxy API.
      * Returns the stream ID.
@@ -2684,8 +2747,21 @@ class M3uProxyService
                 throw new Exception('Stream ID not found in API response');
             }
 
+            $errorBody = $this->sanitizeProxyErrorBody($response->body());
+
+            Log::warning('m3u-proxy rejected stream creation', [
+                'status_code' => $response->status(),
+                'response_body' => $errorBody,
+                'channel_id' => $metadata['channel_id'] ?? $metadata['id'] ?? null,
+                'episode_id' => $metadata['episode_id'] ?? null,
+                'playlist_uuid' => $metadata['playlist_uuid'] ?? null,
+            ]);
+            
             throw new Exception(
-                'Failed to create stream: HTTP '.$response->status()
+                'Failed to create stream: HTTP '
+                .$response->status()
+                .' - '
+                .$errorBody
             );
         } catch (Exception $e) {
             Log::error('Error creating/updating stream on m3u-proxy', [
