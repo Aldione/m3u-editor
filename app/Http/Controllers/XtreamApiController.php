@@ -1383,8 +1383,7 @@ class XtreamApiController extends Controller
             // force refresh and skip the TMDB dispatch, which is unrelated to episode freshness
             // and shouldn't be re-triggered on every client request.
             if (
-                $authMethod !== 'provider_passthrough'
-                && ! $isMediaServerSeries
+                ! $isMediaServerSeries
                 && ! $isDvrSeries
             ) {
                 $results = $seriesItem->fetchMetadata(
@@ -1918,21 +1917,15 @@ class XtreamApiController extends Controller
                 return response()->json(['error' => 'VOD not found'], 404);
             }
 
-            if (
-                $authMethod !== 'provider_passthrough'
-                && ! $channel->last_metadata_fetch
-            ) {
+            if (! $channel->last_metadata_fetch) {
                 $results = $channel->fetchMetadata();
-
+            
                 if ($results === false) {
                     return response()->json([
                         'error' => 'Failed to fetch VOD metadata',
                     ], 500);
                 }
-            } elseif (
-                $authMethod !== 'provider_passthrough'
-                && ! $playlist->auto_fetch_vod_metadata
-            ) {
+            } elseif (! $playlist->auto_fetch_vod_metadata) {
                 $channel->fetchMetadata(
                     refresh: true,
                     skipTmdb: true
