@@ -116,8 +116,8 @@ class PlaylistGenerateController extends Controller
             $streamUsername = urlencode($usedAuth->username);
             $streamPassword = urlencode($usedAuth->password);
         } elseif ($passthroughAuthenticated) {
-            $streamUsername = urlencode($providedUsername);
-            $streamPassword = urlencode($providedPassword);
+            $streamUsername = rawurlencode($providedUsername);
+            $streamPassword = rawurlencode($providedPassword);
         } else {
             $streamUsername = urlencode($playlist->user->name);
             $streamPassword = urlencode($playlist->uuid);
