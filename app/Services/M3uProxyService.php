@@ -2600,17 +2600,17 @@ class M3uProxyService
     private function sanitizeProxyErrorBody(string $body): string
     {
         $body = trim($body);
-    
+
         if ($body === '') {
             return 'empty response body';
         }
-    
+
         /*
          * Redact common sensitive JSON fields before logging or including
          * the proxy response in an exception.
          */
         $decoded = json_decode($body, true);
-    
+
         if (is_array($decoded)) {
             array_walk_recursive($decoded, function (&$value, $key): void {
                 if (
@@ -2630,17 +2630,17 @@ class M3uProxyService
                     $value = '[REDACTED]';
                 }
             });
-    
+
             $encoded = json_encode(
                 $decoded,
                 JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             );
-    
+
             if ($encoded !== false) {
                 $body = $encoded;
             }
         }
-    
+
         /*
          * Also protect credentials if they appear inside an error string
          * rather than dedicated JSON fields.
@@ -2650,13 +2650,13 @@ class M3uProxyService
             '$1[REDACTED]/[REDACTED]',
             $body
         ) ?? $body;
-    
+
         $body = preg_replace(
             '#([?&](?:username|password)=)[^&\s"\'<>]+#i',
             '$1[REDACTED]',
             $body
         ) ?? $body;
-    
+
         return mb_substr($body, 0, 1000);
     }
 
@@ -2780,7 +2780,7 @@ class M3uProxyService
                 'episode_id' => $metadata['episode_id'] ?? null,
                 'playlist_uuid' => $metadata['playlist_uuid'] ?? null,
             ]);
-            
+
             throw new Exception(
                 'Failed to create stream: HTTP '
                 .$response->status()
