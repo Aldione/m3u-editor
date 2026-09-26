@@ -86,7 +86,7 @@ class ProviderAuthPassthroughService
                     : [],
             ];
         }
-    
+
         /*
          * Protect the upstream provider against credential probing.
          *
@@ -94,45 +94,45 @@ class ProviderAuthPassthroughService
          * repeated attempts against the same username from that IP.
          */
         $clientIp = request()->ip() ?: 'unknown';
-    
+
         $ipRateKey = 'provider-passthrough-auth-ip:'.hash(
             'sha256',
             $playlist->id.'|'.$clientIp
         );
-    
+
         $userRateKey = 'provider-passthrough-auth-user:'.hash(
             'sha256',
             $playlist->id.'|'.$clientIp.'|'.$username
         );
-    
+
         if (
             RateLimiter::tooManyAttempts($ipRateKey, 60)
             || RateLimiter::tooManyAttempts($userRateKey, 10)
         ) {
             return null;
         }
-    
+
         RateLimiter::hit($ipRateKey, 60);
         RateLimiter::hit($userRateKey, 60);
-    
+
         $verify = ! ($playlist->disable_ssl_verification ?? false);
         $userAgent = $playlist->user_agent ?: 'VLC/3.0.21 LibVLC/3.0.21';
-    
+
         $providerUrls = collect($playlist->getOrderedXtreamUrls())
             ->map(fn ($url) => $this->normalizeProviderUrl((string) $url))
             ->filter()
             ->unique()
             ->values()
             ->all();
-    
+
         if ($providerUrls === []) {
             Cache::put($cacheKey, [
                 'authenticated' => false,
             ], 10);
-    
+
             return null;
         }
-    
+
         /*
          * Query configured Xtream URLs concurrently rather than waiting for each
          * timeout sequentially.
@@ -146,7 +146,7 @@ class ProviderAuthPassthroughService
                 $userAgent
             ) {
                 $requests = [];
-    
+
                 foreach ($providerUrls as $index => $providerUrl) {
                     $requests[] = $pool
                         ->as((string) $index)
@@ -163,52 +163,52 @@ class ProviderAuthPassthroughService
                             'password' => $password,
                         ]);
                 }
-    
+
                 return $requests;
             });
         } catch (Throwable) {
             Cache::put($cacheKey, [
                 'authenticated' => false,
             ], 10);
-    
+
             return null;
         }
-    
+
         /*
          * Check results in the configured provider URL order, preserving the
          * existing primary/fallback preference even though requests ran in parallel.
          */
         foreach ($providerUrls as $index => $providerUrl) {
             $response = $responses[(string) $index] ?? null;
-    
+
             if (! $response instanceof Response || ! $response->ok()) {
                 continue;
             }
-    
+
             $data = $response->json();
-    
+
             if (! is_array($data)) {
                 continue;
             }
-    
+
             $userInfo = $data['user_info'] ?? null;
-    
+
             if (! is_array($userInfo)) {
                 continue;
             }
-    
+
             if ((int) ($userInfo['auth'] ?? 0) !== 1) {
                 continue;
             }
-    
+
             $status = strtolower(trim((string) ($userInfo['status'] ?? '')));
-    
+
             if (in_array($status, ['banned', 'disabled', 'expired'], true)) {
                 continue;
             }
-    
+
             $expDate = $userInfo['exp_date'] ?? null;
-    
+
             if (
                 $expDate !== null
                 && $expDate !== ''
@@ -218,20 +218,20 @@ class ProviderAuthPassthroughService
             ) {
                 continue;
             }
-    
+
             $serverInfo = is_array($data['server_info'] ?? null)
                 ? $data['server_info']
                 : [];
-    
+
             $cachedResult = [
                 'authenticated' => true,
                 'provider_url' => $providerUrl,
                 'user_info' => $userInfo,
                 'server_info' => $serverInfo,
             ];
-    
+
             Cache::put($cacheKey, $cachedResult, 60);
-    
+
             return [
                 'playlist' => $playlist,
                 'provider_url' => $providerUrl,
@@ -239,7 +239,7 @@ class ProviderAuthPassthroughService
                 'server_info' => $serverInfo,
             ];
         }
-    
+
         /*
          * Briefly cache failed credentials too, preventing the same invalid login
          * from repeatedly hitting the upstream provider.
@@ -247,7 +247,7 @@ class ProviderAuthPassthroughService
         Cache::put($cacheKey, [
             'authenticated' => false,
         ], 10);
-    
+
         return null;
     }
 
