@@ -103,6 +103,31 @@ class Playlist extends Model
         'provider_auth_passthrough_series' => 'boolean',
     ];
 
+    protected static function booted(): void
+    {
+        static::saving(function (Playlist $playlist): void {
+            if (
+                $playlist->provider_auth_passthrough
+                && ! $playlist->xtream
+            ) {
+                $playlist->provider_auth_passthrough = false;
+            }
+        });
+    
+        static::saved(function (Playlist $playlist): void {
+            if (! $playlist->provider_auth_passthrough) {
+                return;
+            }
+    
+            Playlist::query()
+                ->whereKeyNot($playlist->getKey())
+                ->where('provider_auth_passthrough', true)
+                ->update([
+                    'provider_auth_passthrough' => false,
+                ]);
+        });
+    }
+
     public function getFolderPathAttribute(): string
     {
         return "playlist/{$this->uuid}";
