@@ -2743,31 +2743,76 @@ class M3uProxyService
             return 'empty response body';
         }
 
-        /*
-         * Redact common sensitive JSON fields before logging or including
-         * the proxy response in an exception.
-         */
+        $sensitiveTerms = [
+            'authorization',
+            'cookie',
+            'credential',
+            'headers',
+            'password',
+            'secret',
+            'session',
+            'source',
+            'token',
+            'url',
+        ];
+
+        $sanitizeText = static function (string $text): string {
+            $text = preg_replace(
+                '#(?:https?|rtmps?|ftps?|hls)://[^\s"\'<>\[\]{}\|\\\\^`]+#i',
+                '[REDACTED]',
+                $text
+            ) ?? $text;
+
+            $text = preg_replace(
+                '/\b(authorization|cookie|credential|password|secret|session|token|api[_-]?key)\s*[:=]\s*[^\s,;}\]]+/i',
+                '$1=[REDACTED]',
+                $text
+            ) ?? $text;
+
+            return $text;
+        };
+
+        $sanitizeValue = function ($value) use (&$sanitizeValue, $sensitiveTerms, $sanitizeText) {
+            if (is_array($value)) {
+                foreach ($value as $key => $item) {
+                    $normalizedKey = (string) preg_replace(
+                        '/[^a-z0-9]/',
+                        '',
+                        strtolower((string) $key)
+                    );
+
+                    $sensitive = str_ends_with($normalizedKey, 'key');
+
+                    foreach ($sensitiveTerms as $term) {
+                        if (str_contains($normalizedKey, $term)) {
+                            $sensitive = true;
+                            break;
+                        }
+                    }
+
+                    if ($sensitive) {
+                        unset($value[$key]);
+
+                        continue;
+                    }
+
+                    $value[$key] = $sanitizeValue($item);
+                }
+
+                return $value;
+            }
+
+            if (is_string($value)) {
+                return $sanitizeText($value);
+            }
+
+            return $value;
+        };
+
         $decoded = json_decode($body, true);
 
         if (is_array($decoded)) {
-            array_walk_recursive($decoded, function (&$value, $key): void {
-                if (
-                    in_array(
-                        strtolower((string) $key),
-                        [
-                            'username',
-                            'password',
-                            'authorization',
-                            'cookie',
-                            'x-api-token',
-                            'url',
-                        ],
-                        true
-                    )
-                ) {
-                    $value = '[REDACTED]';
-                }
-            });
+            $decoded = $sanitizeValue($decoded);
 
             $encoded = json_encode(
                 $decoded,
@@ -2777,23 +2822,9 @@ class M3uProxyService
             if ($encoded !== false) {
                 $body = $encoded;
             }
+        } else {
+            $body = $sanitizeText($body);
         }
-
-        /*
-         * Also protect credentials if they appear inside an error string
-         * rather than dedicated JSON fields.
-         */
-        $body = preg_replace(
-            '#(/(?:live|movie|series|timeshift)/)[^/\s"\'<>]+/[^/\s"\'<>]+#i',
-            '$1[REDACTED]/[REDACTED]',
-            $body
-        ) ?? $body;
-
-        $body = preg_replace(
-            '#([?&](?:username|password)=)[^&\s"\'<>]+#i',
-            '$1[REDACTED]',
-            $body
-        ) ?? $body;
 
         return mb_substr($body, 0, 1000);
     }
