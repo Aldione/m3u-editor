@@ -3739,6 +3739,10 @@ class PlaylistResource extends Resource implements CopilotResource
                 $section = 'General';
             }
 
+            $sectionLabel = $section === 'Passthrough'
+                ? __('Passthrough')
+                : $section;
+
             // Determine icon for section
             $icon = match (strtolower($section)) {
                 'general' => 'heroicon-m-cog',
@@ -3754,13 +3758,13 @@ class PlaylistResource extends Resource implements CopilotResource
             if (! in_array($section, ['Processing', 'Output'])) {
                 // Wrap the fields in a section
                 $fields = [
-                    Section::make($section)
+                    Section::make($sectionLabel)
                         ->icon($icon)
                         ->schema($fields),
                 ];
             }
 
-            $tabs[] = Tab::make($section)
+            $tabs[] = Tab::make($sectionLabel) 
                 ->icon($icon)
                 ->schema($fields);
         }
@@ -3796,6 +3800,9 @@ class PlaylistResource extends Resource implements CopilotResource
     {
         $wizard = [];
         foreach (self::getFormSections(creating: true) as $step => $fields) {
+            $stepLabel = $step === 'Passthrough'
+                ? __('Passthrough')
+                : $step;
             if (! in_array($step, ['Processing', 'Output'])) {
                 // Wrap the fields in a section
                 $fields = [
@@ -3803,7 +3810,7 @@ class PlaylistResource extends Resource implements CopilotResource
                         ->schema($fields),
                 ];
             }
-            $wizard[] = Step::make($step)
+            $wizard[] = Step::make($stepLabel)
                 ->schema($fields);
 
             // Add auth after type step
