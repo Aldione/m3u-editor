@@ -115,12 +115,12 @@ class Playlist extends Model
                 $playlist->provider_auth_passthrough = false;
             }
         });
-    
+
         static::saved(function (Playlist $playlist): void {
             if (! $playlist->provider_auth_passthrough) {
                 return;
             }
-    
+
             Playlist::query()
                 ->whereKeyNot($playlist->getKey())
                 ->where('provider_auth_passthrough', true)
