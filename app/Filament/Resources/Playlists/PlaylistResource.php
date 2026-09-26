@@ -3805,7 +3805,7 @@ class PlaylistResource extends Resource implements CopilotResource
                 ];
             }
 
-            $tabs[] = Tab::make($sectionLabel) 
+            $tabs[] = Tab::make($sectionLabel)
                 ->icon($icon)
                 ->schema($fields);
         }
