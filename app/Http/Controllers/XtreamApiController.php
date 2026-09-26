@@ -110,6 +110,7 @@ class XtreamApiController extends Controller
         'get_short_epg',
         'get_simple_data_table',
         'm3u_plus',
+        'xmltv',
     ];
 
     private const FAVORITE_COLUMNS = [
@@ -2547,7 +2548,16 @@ class XtreamApiController extends Controller
         if (! $playlist || $authMethod === 'none') {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
-
+        
+        if (
+            $authMethod === 'provider_passthrough'
+            && ! in_array('xmltv', self::PROVIDER_PASSTHROUGH_ACTIONS, true)
+        ) {
+            return response()->json([
+                'error' => 'Action not available',
+            ], 403);
+        }
+        
         // Serve EPG directly instead of redirecting, so it works on the Xtream-only port
         return app()->call(EpgGenerateController::class, [
             'uuid' => $playlist->uuid,
