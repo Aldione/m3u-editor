@@ -897,6 +897,69 @@ class XtreamStreamController extends Controller
         return Redirect::to($network->stream_url);
     }
 
+    private function handleProviderPassthroughStream(
+        Playlist $playlist,
+        ?string $streamUrl,
+        string $username,
+        bool $proxyEnabled,
+        string $metadataType,
+        int|string $streamId,
+        string $logStreamType,
+        string $proxyFormat = 'raw'
+    ) {
+        if (! $streamUrl) {
+            return response()->json([
+                'error' => 'Unable to build provider stream URL',
+            ], 502);
+        }
+    
+        if (! $proxyEnabled) {
+            return Redirect::to($streamUrl);
+        }
+    
+        if (! $playlist->user?->canUseProviderAuthPassthrough()) {
+            return response()->json([
+                'error' => 'Provider Authentication Passthrough is not available',
+            ], 503);
+        }
+    
+        $metadataIdKey = $metadataType === 'episode'
+            ? 'episode_id'
+            : 'channel_id';
+    
+        try {
+            $proxyUrl = app(M3uProxyService::class)->createDirectStreamUrl(
+                url: $streamUrl,
+                headers: $playlist->custom_headers ?? [],
+                userAgent: $playlist->user_agent ?: null,
+                format: $proxyFormat,
+                metadata: [
+                    'id' => (string) $streamId,
+                    $metadataIdKey => (string) $streamId,
+                    'type' => $metadataType,
+                    'playlist_uuid' => $playlist->uuid,
+                    'source_playlist_uuid' => $playlist->uuid,
+                    'auth_method' => 'provider_passthrough',
+                ],
+                username: $username,
+            );
+    
+            return Redirect::to($proxyUrl);
+        } catch (\Throwable $exception) {
+            $this->logPassthroughProxyFailure(
+                $exception,
+                $playlist,
+                $username,
+                $logStreamType,
+                $streamId
+            );
+    
+            return response()->json([
+                'error' => 'Unable to create proxy stream',
+            ], 502);
+        }
+    }
+
     private function logPassthroughProxyFailure(
         \Throwable $exception,
         Playlist $playlist,
