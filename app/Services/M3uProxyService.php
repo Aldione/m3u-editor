@@ -238,7 +238,7 @@ class M3uProxyService
                 return $data['total_matching'] ?? 0;
             }
 
-            $errorBody = $this->sanitizeProxyErrorBody($response->body());
+            $errorBody = $service->sanitizeProxyErrorBody($response->body());
 
             Log::warning('Failed to fetch playlist streams from m3u-proxy', [
                 'status_code' => $response->status(),
@@ -805,7 +805,7 @@ class M3uProxyService
                 ];
             }
 
-            $errorBody = $this->sanitizeProxyErrorBody($response->body());
+            $errorBody = $service->sanitizeProxyErrorBody($response->body());
 
             Log::warning('Failed to stop streams by metadata', [
                 'status_code' => $response->status(),
@@ -940,7 +940,7 @@ class M3uProxyService
                 ];
             }
 
-            $errorBody = $this->sanitizeProxyErrorBody($response->body());
+            $errorBody = $service->sanitizeProxyErrorBody($response->body());
 
             Log::warning('Failed to stop oldest stream', [
                 'status_code' => $response->status(),
@@ -1016,7 +1016,7 @@ class M3uProxyService
                 ];
             }
 
-            $errorBody = $this->sanitizeProxyErrorBody($response->body());
+            $errorBody = $service->sanitizeProxyErrorBody($response->body());
 
             Log::warning('Failed to stop oldest stream by metadata', [
                 'status_code' => $response->status(),
