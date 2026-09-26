@@ -365,7 +365,15 @@ class XtreamStreamController extends Controller
                     );
 
                     return Redirect::to($proxyUrl);
-                } catch (\Throwable) {
+                } catch (\Throwable $exception) {
+                    $this->logPassthroughProxyFailure(
+                        $exception,
+                        $playlist,
+                        $username,
+                        'live',
+                        $channel->id
+                    );
+                
                     return response()->json([
                         'error' => 'Unable to create proxy stream',
                     ], 502);
@@ -487,7 +495,15 @@ class XtreamStreamController extends Controller
                     );
 
                     return Redirect::to($proxyUrl);
-                } catch (\Throwable) {
+                } catch (\Throwable $exception) {
+                    $this->logPassthroughProxyFailure(
+                        $exception,
+                        $playlist,
+                        $username,
+                        'vod',
+                        $channel->id
+                    );
+                
                     return response()->json([
                         'error' => 'Unable to create proxy stream',
                     ], 502);
@@ -607,7 +623,15 @@ class XtreamStreamController extends Controller
                     );
 
                     return Redirect::to($proxyUrl);
-                } catch (\Throwable) {
+                } catch (\Throwable $exception) {
+                    $this->logPassthroughProxyFailure(
+                        $exception,
+                        $playlist,
+                        $username,
+                        'series',
+                        $episode->id
+                    );
+                
                     return response()->json([
                         'error' => 'Unable to create proxy stream',
                     ], 502);
@@ -767,7 +791,15 @@ class XtreamStreamController extends Controller
                 );
 
                 return Redirect::to($proxyUrl);
-            } catch (\Throwable) {
+            } catch (\Throwable $exception) {
+                $this->logPassthroughProxyFailure(
+                    $exception,
+                    $playlist,
+                    $username,
+                    'timeshift',
+                    $timeshiftChannel->id
+                );
+            
                 return response()->json([
                     'error' => 'Unable to create proxy stream',
                 ], 502);
@@ -863,5 +895,23 @@ class XtreamStreamController extends Controller
 
         // Redirect to the network's HLS playlist
         return Redirect::to($network->stream_url);
+    }
+
+    private function logPassthroughProxyFailure(
+        \Throwable $exception,
+        Playlist $playlist,
+        string $username,
+        string $streamType,
+        int|string $streamId
+    ): void {
+        Log::warning('Provider passthrough proxy stream creation failed', [
+            'playlist_id' => $playlist->id,
+            'playlist_uuid' => $playlist->uuid,
+            'stream_type' => $streamType,
+            'stream_id' => (string) $streamId,
+            'username_hash' => hash('sha256', $username),
+            'exception' => $exception::class,
+            'exception_code' => $exception->getCode(),
+        ]);
     }
 }
