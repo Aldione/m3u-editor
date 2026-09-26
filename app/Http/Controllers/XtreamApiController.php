@@ -702,13 +702,42 @@ class XtreamApiController extends Controller
                 && is_array($providerPassthrough['user_info'] ?? null)
             ) {
                 $providerUserInfo = $providerPassthrough['user_info'];
-
-                $expDate = $providerUserInfo['exp_date'] ?? '0';
-                $activeConnections = $providerUserInfo['active_cons'] ?? $activeConnections;
-                $streams = $providerUserInfo['max_connections'] ?? $streams;
-                $status = $providerUserInfo['status'] ?? 'Active';
-                $isTrial = $providerUserInfo['is_trial'] ?? '0';
-                $createdAt = $providerUserInfo['created_at'] ?? $createdAt;
+            
+                /*
+                 * Normalize upstream values before exposing them to Xtream clients.
+                 * Provider responses are not trusted to contain the expected types
+                 * or enum values.
+                 */
+                $providerExpDate = $providerUserInfo['exp_date'] ?? null;
+                $expDate = is_numeric($providerExpDate) && (int) $providerExpDate > 0
+                    ? (int) $providerExpDate
+                    : 0;
+            
+                $providerActiveConnections = $providerUserInfo['active_cons'] ?? null;
+                $activeConnections = is_numeric($providerActiveConnections)
+                    ? max(0, (int) $providerActiveConnections)
+                    : 0;
+            
+                $providerMaxConnections = $providerUserInfo['max_connections'] ?? null;
+                $streams = is_numeric($providerMaxConnections)
+                    ? max(0, (int) $providerMaxConnections)
+                    : 0;
+            
+                /*
+                 * authenticate() only allows usable provider accounts through,
+                 * therefore never echo an arbitrary provider status value.
+                 */
+                $status = 'Active';
+            
+                $providerIsTrial = $providerUserInfo['is_trial'] ?? 0;
+                $isTrial = in_array($providerIsTrial, [1, '1', true], true)
+                    ? '1'
+                    : '0';
+            
+                $providerCreatedAt = $providerUserInfo['created_at'] ?? null;
+                $createdAt = is_numeric($providerCreatedAt) && (int) $providerCreatedAt > 0
+                    ? (int) $providerCreatedAt
+                    : $createdAt;
             } else {
                 $expDate = PlaylistFacade::resolveXtreamExpDate(
                     $playlist,
