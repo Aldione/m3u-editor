@@ -55,15 +55,6 @@ class CreatePlaylist extends CreateRecord
     {
         $data = $this->form->getState();
 
-        if ($this->record->provider_auth_passthrough) {
-            Playlist::query()
-                ->whereKeyNot($this->record->getKey())
-                ->where('provider_auth_passthrough', true)
-                ->update([
-                    'provider_auth_passthrough' => false,
-                ]);
-        }
-
         // Handle authentication based on the selected option
         if (isset($data['auth_option'])) {
             switch ($data['auth_option']) {
