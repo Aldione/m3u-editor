@@ -340,6 +340,10 @@ class XtreamStreamController extends Controller
                     streamId: $channel->id,
                     logStreamType: 'live',
                     proxyFormat: $proxyFormat,
+                    maxConnections: isset($passthrough['user_info']['max_connections'])
+                        && is_numeric($passthrough['user_info']['max_connections'])
+                            ? max(0, (int) $passthrough['user_info']['max_connections'])
+                            : null,
                 );
             }
             // When the channel's source playlist pools provider profiles, the proxy path
@@ -433,6 +437,10 @@ class XtreamStreamController extends Controller
                     streamId: $channel->id,
                     logStreamType: 'vod',
                     proxyFormat: 'raw',
+                    maxConnections: isset($passthrough['user_info']['max_connections'])
+                        && is_numeric($passthrough['user_info']['max_connections'])
+                            ? max(0, (int) $passthrough['user_info']['max_connections'])
+                            : null,
                 );
             }
 
@@ -524,6 +532,10 @@ class XtreamStreamController extends Controller
                     streamId: $episode->id,
                     logStreamType: 'series',
                     proxyFormat: 'raw',
+                    maxConnections: isset($passthrough['user_info']['max_connections'])
+                        && is_numeric($passthrough['user_info']['max_connections'])
+                            ? max(0, (int) $passthrough['user_info']['max_connections'])
+                            : null,
                 );
             }
 
@@ -655,6 +667,10 @@ class XtreamStreamController extends Controller
                 streamId: $timeshiftChannel->id,
                 logStreamType: 'timeshift',
                 proxyFormat: 'raw',
+                maxConnections: isset($passthrough['user_info']['max_connections'])
+                    && is_numeric($passthrough['user_info']['max_connections'])
+                        ? max(0, (int) $passthrough['user_info']['max_connections'])
+                        : null,
             );
         }
 
@@ -757,7 +773,8 @@ class XtreamStreamController extends Controller
         string $metadataType,
         int|string $streamId,
         string $logStreamType,
-        string $proxyFormat = 'raw'
+        string $proxyFormat = 'raw',
+        ?int $maxConnections = null
     ) {
         if (! $streamUrl) {
             return response()->json([
@@ -773,6 +790,31 @@ class XtreamStreamController extends Controller
             return response()->json([
                 'error' => 'Provider Authentication Passthrough is not available',
             ], 503);
+        }
+        $passthroughUserHash = hash_hmac(
+            'sha256',
+            $username,
+            (string) config('app.key')
+        );
+        
+        if ($maxConnections !== null && $maxConnections > 0) {
+            $activeConnections = M3uProxyService::getActiveStreamsCountByMetadata(
+                'provider_passthrough_user_hash',
+                $passthroughUserHash
+            );
+        
+            if ($activeConnections >= $maxConnections) {
+                Log::debug('Provider passthrough stream limit reached', [
+                    'playlist_id' => $playlist->id,
+                    'username_hash' => $passthroughUserHash,
+                    'active_connections' => $activeConnections,
+                    'max_connections' => $maxConnections,
+                ]);
+        
+                return response()->json([
+                    'error' => 'Maximum concurrent streams reached',
+                ], 503);
+            }
         }
     
         $metadataIdKey = $metadataType === 'episode'
@@ -792,6 +834,7 @@ class XtreamStreamController extends Controller
                     'playlist_uuid' => $playlist->uuid,
                     'source_playlist_uuid' => $playlist->uuid,
                     'auth_method' => 'provider_passthrough',
+                    'provider_passthrough_user_hash' => $passthroughUserHash,
                 ],
                 username: $username,
             );
