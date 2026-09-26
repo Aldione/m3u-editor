@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\Playlists\Pages;
 
 use App\Filament\Resources\Playlists\PlaylistResource;
-use App\Models\Playlist;
 use App\Models\PlaylistAuth;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Resources\Pages\CreateRecord\Concerns\HasWizard;
