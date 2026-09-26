@@ -116,15 +116,6 @@ class EditPlaylist extends EditRecord
     {
         $record = $this->getRecord();
 
-        if ($record->provider_auth_passthrough) {
-            Playlist::query()
-                ->whereKeyNot($record->getKey())
-                ->where('provider_auth_passthrough', true)
-                ->update([
-                    'provider_auth_passthrough' => false,
-                ]);
-        }
-
         $this->saveDvrAndRequestFormData($record, $this->form->getRawState());
     }
 }
